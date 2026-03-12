@@ -39,10 +39,11 @@ WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY", "55996b89d132c400e30ad21647f
     WAITING_CITY,
     WAITING_ACTIVITY_PREF,
     WAITING_PARTNER_INTERESTS,
+    WAITING_PARTNER_NAME,
     WAITING_OUTFIT_OCCASION,
     WAITING_AI_CHAT,
     WAITING_SURPRISE_THEME,
-) = range(9)
+) = range(10)
 
 # ─── Хранилище данных ────────────────────────────────────────────────────────
 # Структура: {chat_id: {planner_id, partner_id, date_info, ...}}
@@ -238,15 +239,17 @@ async def show_date_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     else:
         # Для партнёра — AI рассказывает красиво
         planner_name = data.get("planner_name", "Твой партнёр")
+        partner_name = data.get("partner_name", "")
         
         ai_text = await ask_claude(
-            f"{planner_name} запланировал для вас свидание:\n"
+            f"Обращайся к человеку на 'ты'.\n\n"
+            f"{planner_name} запланировал свидание:\n"
             f"- Дата: {d['date']}, Время: {d['time']}\n"
             f"- Город: {d['city']}\n"
             f"- Формат: {d['activity']}\n\n"
-            "Расскажи об этом свидании романтично и тепло, как будто ты романтический ассистент. "
+            f"Расскажи об этом свидании романтично и тепло. Обращайся напрямую к партнёру. "
             "Добавь энтузиазма и предвкушения!",
-            system="Ты романтический AI-ассистент. Говори тепло, мило, на русском."
+            system="Ты романтический AI-ассистент. Говори тепло, мило, на русском. Обращайся на 'ты'."
         )
         
         text = f"💕 *{planner_name} приглашает тебя на свидание!*\n\n{ai_text}"
@@ -445,17 +448,33 @@ async def invite_partner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return MAIN_MENU
     
+    await update.message.reply_text(
+        "💌 *Приглашаем партнёра!*\n\n"
+        "Сначала напиши как зовут твою половинку?\n"
+        "Например: Аня, Дима, Катя...",
+        parse_mode="Markdown"
+    )
+    
+    return WAITING_PARTNER_NAME
+
+
+async def invite_partner_got_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Получили имя партнёра, генерируем ссылку."""
+    user_id = update.effective_user.id
+    partner_custom_name = update.message.text.strip()
+    
     data = get_couple_data(user_id)
+    data["partner_custom_name"] = partner_custom_name  # Сохраняем как ты называешь партнёра
     
     # Генерируем уникальную ссылку-приглашение
     bot_username = (await context.bot.get_me()).username
     invite_link = f"https://t.me/{bot_username}?start=join_{user_id}"
     
     await update.message.reply_text(
-        f"💌 *Пригласи свою половинку!*\n\n"
+        f"💌 *Пригласи {partner_custom_name}!*\n\n"
         f"Отправь ей/ему эту ссылку:\n"
         f"`{invite_link}`\n\n"
-        f"Когда партнёр перейдёт по ссылке, я автоматически свяжу вас и расскажу ей/ему о свидании!",
+        f"Когда {partner_custom_name} перейдёт по ссылке, я красиво расскажу о свидании!",
         parse_mode="Markdown",
         reply_markup=main_keyboard(user_id)
     )
@@ -499,23 +518,25 @@ async def handle_join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     
     # Приветствуем партнёра
     planner_name = planner_data.get("planner_name", "Твой партнёр")
+    partner_custom_name = planner_data.get("partner_custom_name", partner_name)  # Используем имя которое указал планировщик
     d = planner_data.get("date_info", {})
     
     if d:
         ai_welcome = await ask_claude(
-            f"{planner_name} пригласил тебя в романтический бот!\n"
-            f"Он запланировал свидание:\n"
+            f"Ты - романтический AI-ассистент. Обращайся к человеку по имени {partner_custom_name}.\n\n"
+            f"{planner_name} пригласил {partner_custom_name} на свидание:\n"
             f"- Дата: {d.get('date', '—')}, Время: {d.get('time', '—')}\n"
             f"- Город: {d.get('city', '—')}\n"
             f"- Формат: {d.get('activity', '—')}\n\n"
-            "Поприветствуй партнёра тепло и романтично! Скажи что поможешь подготовиться к свиданию.",
-            system="Ты романтический AI-ассистент. Говори мило и тепло на русском."
+            f"Тепло поприветствуй {partner_custom_name} и скажи что поможешь ему/ей подготовиться к свиданию. "
+            f"Обращайся напрямую к {partner_custom_name} на 'ты'.",
+            system=f"Ты романтический AI-ассистент. Говори мило и тепло на русском. Обращайся к {partner_custom_name}."
         )
     else:
-        ai_welcome = f"{planner_name} пригласил тебя! Скоро он запланирует свидание, и я помогу вам обоим подготовиться! 💕"
+        ai_welcome = f"{planner_name} пригласил тебя, {partner_custom_name}! Скоро он запланирует свидание, и я помогу вам обоим подготовиться! 💕"
     
     await update.message.reply_text(
-        f"💕 *Привет, {partner_name}!*\n\n{ai_welcome}",
+        f"💕 *Привет, {partner_custom_name}!*\n\n{ai_welcome}",
         parse_mode="Markdown",
         reply_markup=main_keyboard(partner_id)
     )
@@ -806,6 +827,9 @@ def main():
             ],
             WAITING_ACTIVITY_PREF: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, plan_date_got_activity)
+            ],
+            WAITING_PARTNER_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, invite_partner_got_name)
             ],
             WAITING_AI_CHAT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, ai_chat_reply)
