@@ -83,11 +83,22 @@ def main_keyboard(user_id: int) -> ReplyKeyboardMarkup:
     
     if is_planner(user_id):
         # Меню для планировщика
-        keyboard = [
-            [KeyboardButton("🗓 Запланировать свидание")],
-            [KeyboardButton("💌 Пригласить партнёра"), KeyboardButton("💕 Наше свидание")],
-            [KeyboardButton("🤖 AI-ассистент")],
-        ]
+        has_date = bool(data.get("date_info", {}).get("date"))
+        
+        if has_date:
+            # Если свидание уже запланировано
+            keyboard = [
+                [KeyboardButton("🔄 Изменить свидание"), KeyboardButton("❌ Отменить свидание")],
+                [KeyboardButton("💌 Пригласить партнёра"), KeyboardButton("💕 Наше свидание")],
+                [KeyboardButton("🤖 AI-ассистент")],
+            ]
+        else:
+            # Если свидание ещё не запланировано
+            keyboard = [
+                [KeyboardButton("🗓 Запланировать свидание")],
+                [KeyboardButton("💌 Пригласить партнёра"), KeyboardButton("💕 Наше свидание")],
+                [KeyboardButton("🤖 AI-ассистент")],
+            ]
     else:
         # Меню для приглашённого партнёра
         keyboard = [
@@ -339,6 +350,87 @@ async def plan_date_got_activity(update: Update, context: ContextTypes.DEFAULT_T
             pass
     
     return MAIN_MENU
+
+
+# ─── Отмена свидания ─────────────────────────────────────────────────────────
+
+async def cancel_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Отменить запланированное свидание."""
+    user_id = update.effective_user.id
+    
+    if not is_planner(user_id):
+        await update.message.reply_text(
+            "Только планировщик может отменить свидание 😊",
+            reply_markup=main_keyboard(user_id)
+        )
+        return MAIN_MENU
+    
+    data = get_couple_data(user_id)
+    
+    if not data.get("date_info", {}).get("date"):
+        await update.message.reply_text(
+            "Нет запланированного свидания для отмены 🤷",
+            reply_markup=main_keyboard(user_id)
+        )
+        return MAIN_MENU
+    
+    # Очищаем данные свидания
+    data["date_info"] = {}
+    
+    await update.message.reply_text(
+        "❌ Свидание отменено.\n\nМожешь запланировать новое через *🗓 Запланировать свидание*",
+        parse_mode="Markdown",
+        reply_markup=main_keyboard(user_id)
+    )
+    
+    # Уведомляем партнёра
+    partner_id = data.get("partner_id")
+    if partner_id:
+        try:
+            await context.bot.send_message(
+                chat_id=partner_id,
+                text=f"😔 {data['planner_name']} отменил свидание.\n\n"
+                     "Не переживай, скоро он запланирует новое! 💕",
+                parse_mode="Markdown",
+                reply_markup=main_keyboard(partner_id)
+            )
+        except:
+            pass
+    
+    return MAIN_MENU
+
+
+# ─── Изменение свидания ──────────────────────────────────────────────────────
+
+async def change_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Изменить существующее свидание."""
+    user_id = update.effective_user.id
+    
+    if not is_planner(user_id):
+        await update.message.reply_text(
+            "Только планировщик может изменить свидание 😊",
+            reply_markup=main_keyboard(user_id)
+        )
+        return MAIN_MENU
+    
+    data = get_couple_data(user_id)
+    
+    if not data.get("date_info", {}).get("date"):
+        await update.message.reply_text(
+            "Нет запланированного свидания. Создай новое через *🗓 Запланировать свидание*",
+            parse_mode="Markdown",
+            reply_markup=main_keyboard(user_id)
+        )
+        return MAIN_MENU
+    
+    # Очищаем старые данные и начинаем заново
+    data["date_info"] = {}
+    
+    await update.message.reply_text(
+        "🔄 *Изменяем свидание!*\n\nВведи новую дату (формат: ДД.ММ.ГГГГ):",
+        parse_mode="Markdown"
+    )
+    return WAITING_DATE
 
 
 # ─── Приглашение партнёра ────────────────────────────────────────────────────
@@ -691,6 +783,8 @@ def main():
         states={
             MAIN_MENU: [
                 MessageHandler(filters.Regex("^🗓 Запланировать свидание$"), plan_date_start),
+                MessageHandler(filters.Regex("^🔄 Изменить свидание$"), change_date),
+                MessageHandler(filters.Regex("^❌ Отменить свидание$"), cancel_date),
                 MessageHandler(filters.Regex("^💌 Пригласить партнёра$"), invite_partner),
                 MessageHandler(filters.Regex("^💕 Наше свидание$"), show_date_info),
                 MessageHandler(filters.Regex("^☁️ Погода$"), weather_for_partner),
