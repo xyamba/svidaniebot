@@ -1,0 +1,1 @@
+worker: python date_bot_couple.py
