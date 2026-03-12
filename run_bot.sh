@@ -1,0 +1,5 @@
+#!/bin/bash
+export TELEGRAM_TOKEN='8655608335:AAF1f_IL3rCpPEXsRxhRI5jGVbFR1Pe2GJw'
+export GROQ_API_KEY='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'
+export WEATHER_API_KEY='55996b89d132c400e30ad21647f5e6cc'
+python date_bot_fixed.py
